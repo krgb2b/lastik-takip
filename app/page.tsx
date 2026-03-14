@@ -5,16 +5,14 @@ export default async function Home() {
     .from("tyres")
     .select(`
       id,
+      customer_id,
       serial_no,
       tyre_type,
       size,
       original_brand,
       original_pattern,
       sale_price,
-      status,
-      customers (
-        name
-      )
+      status
     `)
     .limit(20);
 
@@ -26,24 +24,18 @@ export default async function Home() {
         <p className="mt-4">Hata: {error.message}</p>
       ) : (
         <div className="mt-6 space-y-3">
-          {tyres?.map((tyre) => {
-            const customerName = Array.isArray(tyre.customers)
-              ? tyre.customers[0]?.name
-              : tyre.customers?.name;
-
-            return (
-              <div key={tyre.id} className="rounded border p-4">
-                <div><strong>Müşteri:</strong> {customerName}</div>
-                <div><strong>Seri No:</strong> {tyre.serial_no}</div>
-                <div><strong>Tür:</strong> {tyre.tyre_type}</div>
-                <div><strong>Ebat:</strong> {tyre.size}</div>
-                <div><strong>Marka:</strong> {tyre.original_brand}</div>
-                <div><strong>Desen:</strong> {tyre.original_pattern}</div>
-                <div><strong>Satış Fiyatı:</strong> {tyre.sale_price}</div>
-                <div><strong>Durum:</strong> {tyre.status}</div>
-              </div>
-            );
-          })}
+          {tyres?.map((tyre) => (
+            <div key={tyre.id} className="rounded border p-4">
+              <div><strong>Müşteri ID:</strong> {tyre.customer_id}</div>
+              <div><strong>Seri No:</strong> {tyre.serial_no}</div>
+              <div><strong>Tür:</strong> {tyre.tyre_type}</div>
+              <div><strong>Ebat:</strong> {tyre.size}</div>
+              <div><strong>Marka:</strong> {tyre.original_brand}</div>
+              <div><strong>Desen:</strong> {tyre.original_pattern}</div>
+              <div><strong>Satış Fiyatı:</strong> {tyre.sale_price}</div>
+              <div><strong>Durum:</strong> {tyre.status}</div>
+            </div>
+          ))}
         </div>
       )}
     </main>
