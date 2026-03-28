@@ -162,7 +162,6 @@ export function PermissionProvider({
       const parsed = deserializePermissionState(cached);
       if (parsed) {
         setPermissionState(parsed);
-        setIsBootstrappingPermissions(false);
       }
     }
 

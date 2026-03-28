@@ -5,6 +5,7 @@ import { supabase } from "../../src/lib/supabase";
 import PermissionGuard from "@/src/components/PermissionGuard";
 import { can } from "@/src/lib/auth/permissions";
 import { usePermissionState } from "@/src/hooks/usePermissionState";
+import { formatTyreStatus } from "@/src/lib/formatters";
 
 type Receipt = {
   id: number;
@@ -504,7 +505,7 @@ function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${className}`}>
-      {status}
+      {formatTyreStatus(status)}
     </span>
   );
 }

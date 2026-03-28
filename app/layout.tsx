@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { PermissionProvider } from "@/src/providers/PermissionProvider";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import AppShell from "@/src/components/AppShell";
 
 export const metadata: Metadata = {
@@ -16,9 +17,11 @@ export default function RootLayout({
   return (
     <html lang="tr">
       <body>
-        <PermissionProvider>
-          <AppShell>{children}</AppShell>
-        </PermissionProvider>
+        <ErrorBoundary>
+          <PermissionProvider>
+            <AppShell>{children}</AppShell>
+          </PermissionProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

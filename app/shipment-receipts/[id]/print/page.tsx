@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabase";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRow,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
 
 type ShipmentReceipt = {
   id: number;
@@ -10,8 +16,6 @@ type ShipmentReceipt = {
   shipment_type: string;
   status: string;
   shipment_date: string | null;
-  region: string | null;
-  salesperson: string | null;
   description: string | null;
   created_at: string;
 };
@@ -22,10 +26,7 @@ type ShipmentReceiptItem = {
   tyre_id: number;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-};
+type Customer = NormalizedCustomer;
 
 type Tyre = {
   id: number;
@@ -101,8 +102,6 @@ export default function ShipmentReceiptPrintPage({
           shipment_type,
           status,
           shipment_date,
-          region,
-          salesperson,
           description,
           created_at
         `)
@@ -132,7 +131,7 @@ export default function ShipmentReceiptPrintPage({
 
         supabase
           .from("customers")
-          .select("id, name")
+          .select(CUSTOMER_WITH_RELATIONS_SELECT)
           .eq("id", receiptData.customer_id)
           .single(),
 
@@ -159,7 +158,11 @@ export default function ShipmentReceiptPrintPage({
 
       const itemRows = (itemsRes.data || []) as ShipmentReceiptItem[];
       setItems(itemRows);
-      setCustomer((customerRes.data || null) as Customer | null);
+      setCustomer(
+        customerRes.data
+          ? normalizeCustomerRow(customerRes.data as CustomerWithRelationsRow)
+          : null
+      );
       setRetreadBrands((retreadBrandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((treadPatternsRes.data || []) as TreadPattern[]);
 
@@ -283,8 +286,8 @@ export default function ShipmentReceiptPrintPage({
 
               <div className="grid gap-2 text-sm">
                 <PrintMeta label="Müşteri" value={customer?.name || "-"} />
-                <PrintMeta label="Bölge" value={receipt.region || "-"} />
-                <PrintMeta label="Plasiyer" value={receipt.salesperson || "-"} />
+                <PrintMeta label="Bölge" value={customer?.region || "-"} />
+                <PrintMeta label="Plasiyer" value={customer?.salesperson || "-"} />
               </div>
             </div>
 

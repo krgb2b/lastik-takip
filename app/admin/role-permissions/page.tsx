@@ -312,11 +312,11 @@ function AdminRolePermissionsPageContent() {
   }
 
   return (
-    <main className="space-y-4 p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <main className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Rol İzinleri</h1>
-          <p className="text-sm text-slate-600">
+          <h1 className="text-2xl font-bold text-slate-900">Rol İzinleri</h1>
+          <p className="mt-1 text-sm text-slate-600">
             Seçili rolün izinlerini yönetin.
           </p>
         </div>
@@ -346,15 +346,6 @@ function AdminRolePermissionsPageContent() {
           </button>
         </div>
       </div>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard label="Toplam Rol" value={String(roles.length)} />
-        <SummaryCard label="Toplam İzin" value={String(permissions.length)} />
-        <SummaryCard
-          label="Seçili İzin"
-          value={String(selectedPermissionIds.length)}
-        />
-      </section>
 
       <div className="grid gap-4 md:grid-cols-[280px_1fr]">
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -386,17 +377,17 @@ function AdminRolePermissionsPageContent() {
         </section>
 
         <section className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto]">
               <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="filter-control"
                 placeholder="İzin adı, kodu veya modül ara..."
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
               />
 
               <select
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="filter-control"
                 value={moduleFilter}
                 onChange={(e) => setModuleFilter(e.target.value)}
               >
@@ -522,20 +513,5 @@ function AdminRolePermissionsPageContent() {
         </section>
       </div>
     </main>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold text-slate-900">{value}</div>
-    </div>
   );
 }

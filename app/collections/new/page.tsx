@@ -5,18 +5,19 @@ import { supabase } from "../../../src/lib/supabase";
 import PermissionGuard from "@/src/components/PermissionGuard";
 import { can } from "@/src/lib/auth/permissions";
 import { usePermissionState } from "@/src/hooks/usePermissionState";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRows,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
 
 type Option = {
   value: string;
   label: string;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-  region: string | null;
-  salesperson: string | null;
-};
+type Customer = NormalizedCustomer;
 
 type CustomerAddress = {
   id: number;
@@ -46,6 +47,12 @@ type TyreSizeMaster = {
   tyre_type_id: number;
   name: string;
   sort_order: number;
+};
+
+type TyreUsageRow = {
+  tyre_type?: string | null;
+  size?: string | null;
+  original_pattern?: string | null;
 };
 
 type OriginalBrandMaster = {
@@ -98,6 +105,16 @@ const paymentTypeOptions: Option[] = [
   { value: "Cari", label: "Cari" },
 ];
 
+const CONTROL_INPUT_CLASS =
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none";
+const CONTROL_INPUT_DISABLED_CLASS = `${CONTROL_INPUT_CLASS} disabled:bg-slate-100`;
+const CONTROL_READONLY_INPUT_CLASS =
+  "w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm";
+const CONTROL_SEGMENT_CONTAINER_CLASS =
+  "flex h-[42px] overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm";
+const CONTROL_SEGMENT_BUTTON_BASE_CLASS =
+  "h-full flex-1 px-3 text-sm font-medium transition";
+
 function createEmptyRow(id: number): Row {
   return {
     id,
@@ -115,6 +132,10 @@ function createEmptyRow(id: number): Row {
     warranty_status: "",
     description: "",
   };
+}
+
+function normalizeUsageText(value: string) {
+  return value.trim().toLocaleLowerCase("tr-TR");
 }
 
 function normalizeText(value: string) {
@@ -162,6 +183,8 @@ function SearchableSelect({
   disabled = false,
   onChange,
   footerAction,
+  inputRef,
+  onEnterNext,
 }: {
   value: string;
   options: Option[];
@@ -172,6 +195,8 @@ function SearchableSelect({
     label: string;
     onClick: () => void;
   };
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  onEnterNext?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -269,7 +294,8 @@ function SearchableSelect({
   return (
     <div ref={wrapperRef} className="relative">
       <input
-        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none disabled:bg-slate-100"
+        ref={inputRef}
+        className={CONTROL_INPUT_DISABLED_CLASS}
         value={query}
         disabled={disabled}
         placeholder={placeholder}
@@ -318,9 +344,11 @@ function SearchableSelect({
           }
 
           if (e.key === "Enter") {
-            if (!open) return;
             e.preventDefault();
-            commitBestMatch();
+            if (open) {
+              commitBestMatch();
+            }
+            onEnterNext?.();
             return;
           }
 
@@ -403,13 +431,17 @@ function CompactSegmentedSelect({
   value,
   options,
   onChange,
+  onEnterNext,
+  firstButtonRef,
 }: {
   value: string;
   options: Option[];
   onChange: (value: string) => void;
+  onEnterNext?: () => void;
+  firstButtonRef?: React.RefObject<HTMLButtonElement | null>;
 }) {
   return (
-    <div className="flex h-[42px] overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
+    <div className={CONTROL_SEGMENT_CONTAINER_CLASS}>
       {options.map((option, index) => {
         const active = value === option.value;
 
@@ -417,9 +449,17 @@ function CompactSegmentedSelect({
           <button
             key={option.value}
             type="button"
+            ref={index === 0 ? firstButtonRef : undefined}
             onClick={() => onChange(option.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onChange(option.value);
+                onEnterNext?.();
+              }
+            }}
             className={[
-              "flex-1 px-3 text-sm font-medium transition",
+              CONTROL_SEGMENT_BUTTON_BASE_CLASS,
               index > 0 ? "border-l border-slate-200" : "",
               active
                 ? "bg-slate-900 text-white"
@@ -481,6 +521,7 @@ function NewCollectionPageContent() {
   const [saving, setSaving] = useState(false);
   const [savedReceiptNo, setSavedReceiptNo] = useState("");
   const [savedReceiptId, setSavedReceiptId] = useState<number | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
   const [bulkCount, setBulkCount] = useState("1");
 
   const [draftRow, setDraftRow] = useState<Row>(createEmptyRow(1));
@@ -492,13 +533,27 @@ function NewCollectionPageContent() {
 
   const [message, setMessage] = useState("");
 
+  const serialInputRef = useRef<HTMLInputElement | null>(null);
+  const sizeInputRef = useRef<HTMLInputElement | null>(null);
+  const priceInputRef = useRef<HTMLInputElement | null>(null);
+  const tyreConditionFirstButtonRef = useRef<HTMLButtonElement | null>(null);
+  const originalBrandInputRef = useRef<HTMLInputElement | null>(null);
+  const originalPatternInputRef = useRef<HTMLInputElement | null>(null);
+  const retreadBrandInputRef = useRef<HTMLInputElement | null>(null);
+  const retreadPatternInputRef = useRef<HTMLInputElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  const allowNavigationRef = useRef(false);
+
   function openMessage(text: string) {
     setMessage(text);
   }
 
   useEffect(() => {
     async function loadData() {
+      
+    
       const [
+        
         customersRes,
         addressesRes,
         brandsRes,
@@ -510,7 +565,7 @@ function NewCollectionPageContent() {
       ] = await Promise.all([
         supabase
           .from("customers")
-          .select("id, name, region, salesperson")
+          .select(CUSTOMER_WITH_RELATIONS_SELECT)
           .order("name"),
         supabase
           .from("customer_addresses")
@@ -524,15 +579,13 @@ function NewCollectionPageContent() {
         supabase
           .from("tyre_types")
           .select("id, name, sort_order")
-          .order("sort_order")
           .order("name"),
         supabase
           .from("tyre_sizes")
           .select("id, tyre_type_id, name, sort_order")
-          .order("sort_order")
           .order("name"),
         supabase.from("original_brands").select("id, name").order("name"),
-        supabase.from("tyres").select("original_pattern").limit(5000),
+        supabase.from("tyres").select("tyre_type, size, original_pattern"),
       ]);
 
       const firstError = [
@@ -557,25 +610,76 @@ function NewCollectionPageContent() {
           originalBrandsRes,
           tyresRes,
         });
+        
         openMessage(`Master veri yüklenemedi: ${firstError.message}`);
         return;
       }
 
-      setCustomers((customersRes.data || []) as Customer[]);
+      setCustomers(
+        normalizeCustomerRows(
+          ((customersRes.data || []) as CustomerWithRelationsRow[])
+        )
+      );
       setCustomerAddresses((addressesRes.data || []) as CustomerAddress[]);
       setRetreadBrands((brandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((patternsRes.data || []) as TreadPattern[]);
-      setTyreTypes((tyreTypesRes.data || []) as TyreTypeMaster[]);
-      setTyreSizes((tyreSizesRes.data || []) as TyreSizeMaster[]);
+      const tyreRows = (tyresRes.data || []) as TyreUsageRow[];
+
+      const typeUsageCounts = new Map<string, number>();
+      const sizeUsageCounts = new Map<string, number>();
+
+      tyreRows.forEach((row) => {
+        if (row.tyre_type?.trim()) {
+          const key = normalizeUsageText(row.tyre_type);
+          typeUsageCounts.set(key, (typeUsageCounts.get(key) || 0) + 1);
+        }
+
+        if (row.size?.trim()) {
+          const key = normalizeSizeKey(row.size);
+          sizeUsageCounts.set(key, (sizeUsageCounts.get(key) || 0) + 1);
+        }
+      });
+
+      setTyreTypes(
+        [ ...((tyreTypesRes.data || []) as TyreTypeMaster[]) ].sort((a, b) => {
+          const usageDiff = (typeUsageCounts.get(normalizeUsageText(b.name)) || 0) - (typeUsageCounts.get(normalizeUsageText(a.name)) || 0);
+          if (usageDiff !== 0) return usageDiff;
+          return a.name.localeCompare(b.name, "tr");
+        })
+      );
+      setTyreSizes(
+        [ ...((tyreSizesRes.data || []) as TyreSizeMaster[]) ].sort((a, b) => {
+          const usageDiff = (sizeUsageCounts.get(normalizeSizeKey(b.name)) || 0) - (sizeUsageCounts.get(normalizeSizeKey(a.name)) || 0);
+          if (usageDiff !== 0) return usageDiff;
+          return a.name.localeCompare(b.name, "tr");
+        })
+      );
       setOriginalBrands((originalBrandsRes.data || []) as OriginalBrandMaster[]);
 
-      const tyreRows =
-        (tyresRes.data || []) as Array<{
-          original_pattern?: string | null;
-        }>;
+      const fallbackOriginalPatterns = compactUnique(
+        tyreRows.map((x) => x.original_pattern ?? "")
+      );
+
+      const { data: originalPatternRows, error: originalPatternError } = await supabase
+        .from("original_pattern")
+        .select("name")
+        .order("sort_order")
+        .order("name");
+
+      if (originalPatternError) {
+        setMasterOriginalPatterns(fallbackOriginalPatterns);
+        return;
+      }
 
       setMasterOriginalPatterns(
-        compactUnique(tyreRows.map((x) => x.original_pattern ?? ""))
+        compactUnique((originalPatternRows || []).map((x) => x.name || ""))
+          .filter(Boolean)
+          .concat(
+            fallbackOriginalPatterns.filter(
+              (pattern) =>
+                !compactUnique((originalPatternRows || []).map((x) => x.name || "")).includes(pattern)
+            )
+          )
       );
     }
 
@@ -601,9 +705,76 @@ function NewCollectionPageContent() {
     return () => document.removeEventListener("keydown", handleEsc);
   }, [message, addressModalOpen]);
 
+  useEffect(() => {
+    if (rows.length > 0 && justSaved) {
+      setJustSaved(false);
+    }
+  }, [rows.length, justSaved]);
+
+  useEffect(() => {
+    const hasUnsavedTyres = rows.length > 0;
+    if (!hasUnsavedTyres || justSaved) {
+      allowNavigationRef.current = false;
+      return;
+    }
+
+    const warningText =
+      "Tabloya lastik eklendi. Sayfadan ayrılırsan bilgiler kaybolacak. Devam etmek istiyor musun?";
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (allowNavigationRef.current) return;
+      event.preventDefault();
+      event.returnValue = warningText;
+    }
+
+    function handleDocumentClick(event: MouseEvent) {
+      if (allowNavigationRef.current) return;
+
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+
+      if (!anchor) return;
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+
+      const nextUrl = new URL(anchor.href, window.location.href);
+      const currentUrl = new URL(window.location.href);
+
+      if (nextUrl.href === currentUrl.href) return;
+
+      const confirmed = window.confirm(warningText);
+      if (!confirmed) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      allowNavigationRef.current = true;
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("click", handleDocumentClick, true);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("click", handleDocumentClick, true);
+    };
+  }, [rows.length, justSaved]);
+
   const totalAmount = useMemo(() => {
     return rows.reduce((sum, row) => sum + Number(row.sale_price || 0), 0);
   }, [rows]);
+
+  const headerLocked = rows.length > 0;
 
   const selectedCustomer =
     customers.find((c) => String(c.id) === customerId) || null;
@@ -614,28 +785,78 @@ function NewCollectionPageContent() {
       (address) => String(address.customer_id) === customerId
     );
   }, [customerAddresses, customerId]);
+function normalizeSizeKey(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[‐-‒–—−]/g, "-")
+    .toLocaleLowerCase("tr-TR");
+}
 
-  const tyreTypeBySize = useMemo(() => {
-    const map = new Map<string, string>();
+const tyreTypeBySize = useMemo(() => {
+  const typeMap = new Map<number, string>();
+  const result = new Map<string, string>();
 
-    tyreSizes.forEach((sizeRow) => {
-      const tyreType = tyreTypes.find((t) => t.id === sizeRow.tyre_type_id);
-      if (tyreType) {
-        map.set(sizeRow.name, tyreType.name);
-      }
-    });
+  tyreTypes.forEach((typeRow) => {
+    typeMap.set(Number(typeRow.id), String(typeRow.name).trim());
+  });
 
-    return map;
-  }, [tyreSizes, tyreTypes]);
+  tyreSizes.forEach((sizeRow) => {
+    const normalizedSize = normalizeSizeKey(String(sizeRow.name));
+    const typeName = typeMap.get(Number(sizeRow.tyre_type_id));
+
+    if (typeName) {
+      result.set(normalizedSize, typeName);
+    }
+  });
+
+  console.log(
+    "TYPE MAP:",
+    tyreTypes.map((t) => ({
+      id: t.id,
+      idType: typeof t.id,
+      name: t.name,
+    }))
+  );
+
+  console.log(
+    "SIZE MAP SOURCE:",
+    tyreSizes.map((s) => ({
+      id: s.id,
+      name: s.name,
+      normalized: normalizeSizeKey(String(s.name)),
+      tyre_type_id: s.tyre_type_id,
+      tyre_type_id_type: typeof s.tyre_type_id,
+      matchedType: typeMap.get(Number(s.tyre_type_id)) || null,
+    }))
+  );
+
+  console.log("FINAL tyreTypeBySize entries:", Array.from(result.entries()));
+
+  return result;
+}, [tyreSizes, tyreTypes]);
 
   const sizeOptions = useMemo(
-    () =>
-      tyreSizes.map((x) => ({
-        value: x.name,
-        label: x.name,
-      })),
-    [tyreSizes]
-  );
+  () =>
+    tyreSizes.map((x) => ({
+      value: String(x.name),
+      label: String(x.name),
+    })),
+  [tyreSizes]
+);
+console.log("TYRE TYPES RAW:", tyreTypes);
+console.log(
+  "TYRE TYPE ID LIST:",
+  tyreTypes.map((t) => ({
+    id: t.id,
+    name: t.name,
+    idType: typeof t.id,
+  }))
+);
+console.log(
+  "HAS TYPE ID 4:",
+  tyreTypes.some((t) => Number(t.id) === 4)
+);
 
   const retreadPatternOptions = useMemo(() => {
     if (!draftRow.retread_brand_id) return [];
@@ -715,12 +936,20 @@ function NewCollectionPageContent() {
       }
 
       if (field === "size") {
-        return {
-          ...prev,
-          size: value,
-          tyre_type: value ? tyreTypeBySize.get(value) || "" : "",
-        };
-      }
+  const normalizedSize = normalizeSizeKey(String(value));
+  const matchedType = tyreTypeBySize.get(normalizedSize) || "";
+
+  console.log("SELECTED SIZE:", value);
+  console.log("SELECTED SIZE TYPE:", typeof value);
+  console.log("NORMALIZED SIZE:", normalizedSize);
+  console.log("MATCHED TYPE:", matchedType);
+
+  return {
+    ...prev,
+    size: value,
+    tyre_type: matchedType,
+  };
+}
 
       return {
         ...prev,
@@ -780,9 +1009,36 @@ function NewCollectionPageContent() {
     return true;
   }
 
+  function validateHeaderForAdd() {
+    if (!customerId) {
+      openMessage("Önce müşteri seçmelisin.");
+      return false;
+    }
+
+    if (!selectedAddressId) {
+      openMessage("Adres seçmeden ekleme yapamazsın.");
+      return false;
+    }
+
+    if (!deliveredBy.trim()) {
+      openMessage("Teslim eden kişi zorunlu.");
+      return false;
+    }
+
+    if (!paymentType) {
+      openMessage("Ödeme tipi seçmelisin.");
+      return false;
+    }
+
+    return true;
+  }
+
   function addCurrentRow() {
     if (!canCreateCollection) return;
+    if (!validateHeaderForAdd()) return;
     if (!validateDraftRow()) return;
+
+    setJustSaved(false);
 
     if (editingRowId) {
       setRows((prev) =>
@@ -807,6 +1063,9 @@ function NewCollectionPageContent() {
 
   function addBulkRows() {
     if (!canCreateCollection) return;
+    if (!validateHeaderForAdd()) return;
+
+    setJustSaved(false);
 
     const count = Number(bulkCount);
 
@@ -998,69 +1257,89 @@ function NewCollectionPageContent() {
     setSaving(true);
 
     try {
-      const receiptNo = `ALM-${Date.now()}`;
+  const { data: receipt, error: receiptError } = await supabase
+    .from("collection_receipts")
+    .insert({
+      customer_id: Number(customerId),
+      customer_address_id: doorstepDelivery ? null : Number(selectedAddressId),
+      doorstep_delivery: doorstepDelivery,
+      receipt_no: "TEMP",
+      delivered_by: deliveredBy,
+      payment_type: paymentType || null,
+      payment_due_date: paymentDueDate || null,
+      total_sale_price: totalAmount,
+      description,
+    })
+    .select("id")
+    .single();
 
-      const { data: receipt, error: receiptError } = await supabase
-        .from("collection_receipts")
-        .insert({
-          customer_id: Number(customerId),
-          customer_address_id: doorstepDelivery ? null : Number(selectedAddressId),
-          doorstep_delivery: doorstepDelivery,
-          receipt_no: receiptNo,
-          delivered_by: deliveredBy,
-          payment_type: paymentType || null,
-          payment_due_date: paymentDueDate || null,
-          total_sale_price: totalAmount,
-          description,
-        })
-        .select("id")
-        .single();
+  if (receiptError) throw new Error(receiptError.message);
 
-      if (receiptError) throw new Error(receiptError.message);
+  const yearPart = new Date().getFullYear().toString().slice(-2);
+  const receiptNo = `ALM-${yearPart}${String(receipt.id).padStart(6, "0")}`;
 
-      const tyrePayload = validRows.map((row) => ({
-        customer_id: Number(customerId),
-        collection_receipt_id: receipt.id,
-        collection_type: row.collection_type,
-        serial_no: row.serial_no.trim(),
-        tyre_type: row.tyre_type,
-        size: row.size,
-        sale_price: Number(row.sale_price || 0),
-        original_brand: row.original_brand,
-        original_pattern: row.original_pattern,
-        retread_brand_id:
-          row.collection_type === "Kaplama" && row.retread_brand_id
-            ? Number(row.retread_brand_id)
-            : null,
-        tread_pattern_id:
-          row.collection_type === "Kaplama" && row.tread_pattern_id
-            ? Number(row.tread_pattern_id)
-            : null,
-        tyre_condition: row.tyre_condition || null,
-        rim_status: row.rim_status || null,
-        warranty_status: row.warranty_status || null,
-        received_by: null,
-        description: row.description,
-        status: "collected",
-      }));
+  const { error: receiptNoUpdateError } = await supabase
+    .from("collection_receipts")
+    .update({
+      receipt_no: receiptNo,
+    })
+    .eq("id", receipt.id);
 
-      const { error: tyreError } = await supabase
-        .from("tyres")
-        .insert(tyrePayload);
+  if (receiptNoUpdateError) throw new Error(receiptNoUpdateError.message);
 
-      if (tyreError) throw new Error(tyreError.message);
+  const tyrePayload = validRows.map((row) => ({
+    customer_id: Number(customerId),
+    collection_receipt_id: receipt.id,
+    collection_type: row.collection_type,
+    serial_no: row.serial_no.trim(),
+    tyre_type: row.tyre_type,
+    size: row.size,
+    sale_price: Number(row.sale_price || 0),
+    original_brand: row.original_brand,
+    original_pattern: row.original_pattern,
+    retread_brand_id:
+      row.collection_type === "Kaplama" && row.retread_brand_id
+        ? Number(row.retread_brand_id)
+        : null,
+    tread_pattern_id:
+      row.collection_type === "Kaplama" && row.tread_pattern_id
+        ? Number(row.tread_pattern_id)
+        : null,
+    tyre_condition: row.tyre_condition || null,
+    rim_status: row.rim_status || null,
+    warranty_status: row.warranty_status || null,
+    received_by: null,
+    description: row.description,
+    status: "collected",
+  }));
 
-      setSavedReceiptNo(receiptNo);
-      setSavedReceiptId(receipt.id);
+  const { error: tyreError } = await supabase
+    .from("tyres")
+    .insert(tyrePayload);
+
+  if (tyreError) throw new Error(tyreError.message);
+
+  setSavedReceiptNo(receiptNo);
+  setSavedReceiptId(receipt.id);
 
       if (openPrint) {
-        window.location.href = `/collections/${receipt.id}/print`;
-        return;
+        const printUrl = `/collections/${receipt.id}/print`;
+        const popup = window.open(
+          printUrl,
+          "collection-print",
+          "popup=yes,width=480,height=900,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes"
+        );
+
+        if (!popup) {
+          openMessage("Yazdırma penceresi engellendi. Popup izni verip tekrar dene.");
+          return;
+        }
       }
 
       openMessage("Toplu alım kaydedildi.");
 
       setRows([]);
+      setJustSaved(true);
       setCustomerId("");
       setSelectedAddressId("");
       setDoorstepDelivery(false);
@@ -1097,18 +1376,23 @@ function NewCollectionPageContent() {
             <div className="rounded-lg bg-slate-100 px-3 py-1.5 text-slate-700">
               Toplam Tutar: <strong>{totalAmount.toFixed(2)} TL</strong>
             </div>
+            {savedReceiptNo ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-900">
+                Kayıt: <strong>{savedReceiptNo}</strong>
+                {savedReceiptId ? ` (ID: ${savedReceiptId})` : ""}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
 
-      {savedReceiptNo ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900 shadow-sm">
-          Kayıt tamamlandı • Fiş No: <strong>{savedReceiptNo}</strong>
-          {savedReceiptId ? ` (ID: ${savedReceiptId})` : ""}
-        </div>
-      ) : null}
-
       <SectionCard title="Müşteri Bilgileri">
+        {headerLocked ? (
+          <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            İlk lastik eklendiği için müşteri bilgileri kilitlendi. Farklı müşteri için yeni form başlatmalısın.
+          </div>
+        ) : null}
+
         <div className="grid gap-2 md:grid-cols-12">
           <div className="md:col-span-4">
             <FieldLabel>Müşteri</FieldLabel>
@@ -1116,12 +1400,22 @@ function NewCollectionPageContent() {
               value={customerId}
               options={customerOptions}
               placeholder="Müşteri ara..."
+              disabled={headerLocked}
               onChange={(value) => {
                 setCustomerId(value);
                 setSelectedAddressId("");
                 setDoorstepDelivery(false);
               }}
             />
+            {selectedCustomer ? (
+              <div className="mt-1.5 text-[11px] text-slate-600">
+                <strong className="text-slate-800">{selectedCustomer.name}</strong>
+                <span className="mx-1.5">•</span>
+                Bölge: {selectedCustomer.region || "-"}
+                <span className="mx-1.5">•</span>
+                Plasiyer: {selectedCustomer.salesperson || "-"}
+              </div>
+            ) : null}
           </div>
 
           <div className="md:col-span-4">
@@ -1130,10 +1424,10 @@ function NewCollectionPageContent() {
               value={selectedAddressId}
               options={addressOptions}
               placeholder={!customerId ? "Önce müşteri seçin" : "Adres ara / seç..."}
-              disabled={doorstepDelivery || !customerId}
+              disabled={headerLocked || doorstepDelivery || !customerId}
               onChange={setSelectedAddressId}
               footerAction={
-                customerId
+                customerId && !headerLocked
                   ? {
                       label: "+ Yeni Adres Ekle",
                       onClick: () => setAddressModalOpen(true),
@@ -1150,6 +1444,7 @@ function NewCollectionPageContent() {
                 <input
                   type="checkbox"
                   checked={doorstepDelivery}
+                  disabled={headerLocked}
                   onChange={(e) => {
                     setDoorstepDelivery(e.target.checked);
                     if (e.target.checked) {
@@ -1167,21 +1462,19 @@ function NewCollectionPageContent() {
             <input
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none"
               value={deliveredBy}
-              readOnly={!canCreateCollection}
-              disabled={!canCreateCollection}
+              readOnly={!canCreateCollection || headerLocked}
+              disabled={!canCreateCollection || headerLocked}
               onChange={(e) => setDeliveredBy(e.target.value)}
             />
           </div>
-        </div>
 
-        <div className="mt-2 grid gap-2 md:grid-cols-12">
           <div className="md:col-span-4">
             <FieldLabel>Fiş Açıklama</FieldLabel>
             <input
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none"
               value={description}
-              readOnly={!canCreateCollection}
-              disabled={!canCreateCollection}
+              readOnly={!canCreateCollection || headerLocked}
+              disabled={!canCreateCollection || headerLocked}
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
@@ -1192,6 +1485,7 @@ function NewCollectionPageContent() {
               value={paymentType}
               options={paymentTypeOptions}
               placeholder="Ödeme tipi seç..."
+              disabled={headerLocked}
               onChange={(value) => setPaymentType(value as PaymentType)}
             />
           </div>
@@ -1202,206 +1496,235 @@ function NewCollectionPageContent() {
               type="date"
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none"
               value={paymentDueDate}
+              disabled={headerLocked}
               onChange={(e) => setPaymentDueDate(e.target.value)}
             />
           </div>
         </div>
-
-        {selectedCustomer ? (
-          <div className="mt-2 grid gap-2 rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700 md:grid-cols-3">
-            <div>
-              <span className="text-xs text-slate-500">Müşteri</span>
-              <div className="font-medium text-slate-900">{selectedCustomer.name}</div>
-            </div>
-
-            <div>
-              <span className="text-xs text-slate-500">Bölge</span>
-              <div className="font-medium text-slate-900">
-                {selectedCustomer.region || "-"}
-              </div>
-            </div>
-
-            <div>
-              <span className="text-xs text-slate-500">Plasiyer</span>
-              <div className="font-medium text-slate-900">
-                {selectedCustomer.salesperson || "-"}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </SectionCard>
 
       <SectionCard title={editingRowId ? "Lastik Düzenle" : "Lastik Ekle"}>
-        <div className="grid gap-2 md:grid-cols-6">
-          <div>
-            <FieldLabel>Talep Edilen İşlem</FieldLabel>
-            <CompactSegmentedSelect
-              value={draftRow.collection_type}
-              options={collectionTypeOptions}
-              onChange={(value) => updateDraft("collection_type", value)}
-            />
-          </div>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Kimlik ve Islem
+            </div>
+            <div className="grid gap-2 md:grid-cols-6">
+              <div>
+                <FieldLabel>Talep Edilen İşlem</FieldLabel>
+                <CompactSegmentedSelect
+                  value={draftRow.collection_type}
+                  options={collectionTypeOptions}
+                  onChange={(value) => updateDraft("collection_type", value)}
+                  onEnterNext={() => serialInputRef.current?.focus()}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Seri No</FieldLabel>
-            <input
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none"
-              value={draftRow.serial_no}
-              readOnly={!canCreateCollection}
-              disabled={!canCreateCollection}
-              onChange={(e) => updateDraft("serial_no", e.target.value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Seri No</FieldLabel>
+                <input
+                  ref={serialInputRef}
+                  className={CONTROL_INPUT_CLASS}
+                  value={draftRow.serial_no}
+                  readOnly={!canCreateCollection}
+                  disabled={!canCreateCollection}
+                  onChange={(e) => updateDraft("serial_no", e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      sizeInputRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Ebat</FieldLabel>
-            <SearchableSelect
-              value={draftRow.size}
-              options={sizeOptions}
-              placeholder="Ebat seç..."
-              disabled={!canCreateCollection}
-              onChange={(value) => updateDraft("size", value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Ebat</FieldLabel>
+                <SearchableSelect
+                  value={draftRow.size}
+                  options={sizeOptions}
+                  placeholder="Ebat seç..."
+                  disabled={!canCreateCollection}
+                  onChange={(value) => updateDraft("size", value)}
+                  inputRef={sizeInputRef}
+                  onEnterNext={() => priceInputRef.current?.focus()}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Lastik Türü</FieldLabel>
-            <input
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm"
-              value={draftRow.tyre_type}
-              readOnly
-              placeholder="Ebat seçildiğinde otomatik gelir"
-            />
-          </div>
+              <div>
+                <FieldLabel>Lastik Türü</FieldLabel>
+                <input
+                  className={CONTROL_READONLY_INPUT_CLASS}
+                  value={draftRow.tyre_type}
+                  readOnly
+                  placeholder="Ebat seçildiğinde otomatik gelir"
+                />
+              </div>
 
-          <div>
-            <FieldLabel>
-              {draftRow.collection_type === "Karkas Satın Alma"
-                ? "Satınalma Fiyatı"
-                : "Satış Fiyatı"}
-            </FieldLabel>
-            <div className="relative">
-              <input
-                type="number"
-                step="0.01"
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 shadow-sm focus:border-slate-400 focus:outline-none"
-                value={draftRow.sale_price}
-                readOnly={!canCreateCollection}
-                disabled={!canCreateCollection}
-                onChange={(e) => updateDraft("sale_price", e.target.value)}
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">
-                TL
-              </span>
+              <div>
+                <FieldLabel>
+                  {draftRow.collection_type === "Karkas Satın Alma"
+                    ? "Satınalma Fiyatı"
+                    : "Satış Fiyatı"}
+                </FieldLabel>
+                <div className="relative">
+                  <input
+                    ref={priceInputRef}
+                    type="number"
+                    step="0.01"
+                    className={`${CONTROL_INPUT_CLASS} pr-10`}
+                    value={draftRow.sale_price}
+                    readOnly={!canCreateCollection}
+                    disabled={!canCreateCollection}
+                    onChange={(e) => updateDraft("sale_price", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        tyreConditionFirstButtonRef.current?.focus();
+                      }
+                    }}
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">
+                    TL
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel>Açıklama</FieldLabel>
+                <input
+                  className={CONTROL_INPUT_CLASS}
+                  value={draftRow.description}
+                  readOnly={!canCreateCollection}
+                  disabled={!canCreateCollection}
+                  onChange={(e) => updateDraft("description", e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
-          <div>
-            <FieldLabel>Açıklama</FieldLabel>
-            <input
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:border-slate-400 focus:outline-none"
-              value={draftRow.description}
-              readOnly={!canCreateCollection}
-              disabled={!canCreateCollection}
-              onChange={(e) => updateDraft("description", e.target.value)}
-            />
-          </div>
-        </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Teknik Durum ve Desen
+            </div>
+            <div className="grid gap-2 md:grid-cols-6">
+              <div>
+                <FieldLabel>Lastik Durumu</FieldLabel>
+                <CompactSegmentedSelect
+                  value={draftRow.tyre_condition}
+                  options={tyreConditionOptions}
+                  onChange={(value) => updateDraft("tyre_condition", value)}
+                  onEnterNext={() => originalBrandInputRef.current?.focus()}
+                  firstButtonRef={tyreConditionFirstButtonRef}
+                />
+              </div>
 
-        <div className="mt-2 grid gap-2 md:grid-cols-6">
-          <div>
-            <FieldLabel>Lastik Durumu</FieldLabel>
-            <CompactSegmentedSelect
-              value={draftRow.tyre_condition}
-              options={tyreConditionOptions}
-              onChange={(value) => updateDraft("tyre_condition", value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Jant</FieldLabel>
+                <CompactSegmentedSelect
+                  value={draftRow.rim_status}
+                  options={yesNoOptions}
+                  onChange={(value) => updateDraft("rim_status", value)}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Jant</FieldLabel>
-            <CompactSegmentedSelect
-              value={draftRow.rim_status}
-              options={yesNoOptions}
-              onChange={(value) => updateDraft("rim_status", value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Garanti</FieldLabel>
+                <CompactSegmentedSelect
+                  value={draftRow.warranty_status}
+                  options={yesNoOptions}
+                  onChange={(value) => updateDraft("warranty_status", value)}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Garanti</FieldLabel>
-            <CompactSegmentedSelect
-              value={draftRow.warranty_status}
-              options={yesNoOptions}
-              onChange={(value) => updateDraft("warranty_status", value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Orijinal Marka</FieldLabel>
+                <SearchableSelect
+                  value={draftRow.original_brand}
+                  options={originalBrandOptions}
+                  placeholder="Orijinal marka seç..."
+                  disabled={!canCreateCollection}
+                  onChange={(value) => updateDraft("original_brand", value)}
+                  inputRef={originalBrandInputRef}
+                  onEnterNext={() => originalPatternInputRef.current?.focus()}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Orijinal Marka</FieldLabel>
-            <SearchableSelect
-              value={draftRow.original_brand}
-              options={originalBrandOptions}
-              placeholder="Orijinal marka seç..."
-              disabled={!canCreateCollection}
-              onChange={(value) => updateDraft("original_brand", value)}
-            />
-          </div>
+              <div>
+                <FieldLabel>Orijinal Desen</FieldLabel>
+                <SearchableSelect
+                  value={draftRow.original_pattern}
+                  options={originalPatternOptions}
+                  placeholder="Orijinal desen seç..."
+                  disabled={!canCreateCollection}
+                  onChange={(value) => updateDraft("original_pattern", value)}
+                  inputRef={originalPatternInputRef}
+                  onEnterNext={() => {
+                    if (draftRow.collection_type === "Kaplama") {
+                      retreadBrandInputRef.current?.focus();
+                    } else {
+                      addButtonRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
 
-          <div>
-            <FieldLabel>Orijinal Desen</FieldLabel>
-            <SearchableSelect
-              value={draftRow.original_pattern}
-              options={originalPatternOptions}
-              placeholder="Orijinal desen seç..."
-              disabled={!canCreateCollection}
-              onChange={(value) => updateDraft("original_pattern", value)}
-            />
+              <div />
+            </div>
           </div>
-
-          <div />
         </div>
 
         {draftRow.collection_type === "Kaplama" ? (
-          <div className="mt-2 grid gap-2 md:grid-cols-6">
-            <div>
-              <FieldLabel>Kaplama Marka</FieldLabel>
-              <SearchableSelect
-                value={draftRow.retread_brand_id}
-                options={retreadBrandOptions}
-                placeholder="Kaplama marka seç..."
-                disabled={!canCreateCollection}
-                onChange={(value) => updateDraft("retread_brand_id", value)}
-              />
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Kaplama Detayi
             </div>
+            <div className="grid gap-2 md:grid-cols-6">
+              <div>
+                <FieldLabel>Kaplama Marka</FieldLabel>
+                <SearchableSelect
+                  value={draftRow.retread_brand_id}
+                  options={retreadBrandOptions}
+                  placeholder="Kaplama marka seç..."
+                  disabled={!canCreateCollection}
+                  onChange={(value) => updateDraft("retread_brand_id", value)}
+                  inputRef={retreadBrandInputRef}
+                  onEnterNext={() => retreadPatternInputRef.current?.focus()}
+                />
+              </div>
 
-            <div>
-              <FieldLabel>Kaplama Desen</FieldLabel>
-              <SearchableSelect
-                value={draftRow.tread_pattern_id}
-                options={retreadPatternOptions}
-                placeholder={
-                  !draftRow.retread_brand_id ? "Önce marka seçin" : "Kaplama desen seç..."
-                }
-                disabled={!draftRow.retread_brand_id || !canCreateCollection}
-                onChange={(value) => updateDraft("tread_pattern_id", value)}
-              />
+              <div>
+                <FieldLabel>Kaplama Desen</FieldLabel>
+                <SearchableSelect
+                  value={draftRow.tread_pattern_id}
+                  options={retreadPatternOptions}
+                  placeholder={
+                    !draftRow.retread_brand_id ? "Önce marka seçin" : "Kaplama desen seç..."
+                  }
+                  disabled={!draftRow.retread_brand_id || !canCreateCollection}
+                  onChange={(value) => updateDraft("tread_pattern_id", value)}
+                  inputRef={retreadPatternInputRef}
+                  onEnterNext={() => addButtonRef.current?.focus()}
+                />
+              </div>
+
+              <div />
+              <div />
+              <div />
+              <div />
             </div>
-
-            <div />
-            <div />
-            <div />
-            <div />
           </div>
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-end justify-end gap-2">
           {canCreateCollection ? (
             <button
+              ref={addButtonRef}
               type="button"
               onClick={addCurrentRow}
               className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
-              Ekle
+              {editingRowId ? "Düzenle" : "Ekle"}
             </button>
           ) : null}
 
@@ -1420,7 +1743,7 @@ function NewCollectionPageContent() {
               <input
                 type="number"
                 min="1"
-                className="w-20 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-400 focus:outline-none"
+                  className="w-20 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-slate-400 focus:outline-none"
                 value={bulkCount}
                 onChange={(e) => setBulkCount(e.target.value)}
               />
@@ -1563,7 +1886,7 @@ function NewCollectionPageContent() {
                 type="button"
                 onClick={() => saveCollection(false)}
                 disabled={saving}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
               >
                 {saving ? "Kaydediliyor..." : "Kaydet"}
               </button>
@@ -1574,7 +1897,7 @@ function NewCollectionPageContent() {
                 type="button"
                 onClick={() => saveCollection(true)}
                 disabled={saving}
-                className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
               >
                 {saving ? "Kaydediliyor..." : "Kaydet ve Yazdır"}
               </button>

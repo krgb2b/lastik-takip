@@ -225,11 +225,11 @@ function AdminRolesPageContent() {
   }
 
   return (
-    <main className="space-y-4 p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <main className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Roller</h1>
-          <p className="text-sm text-slate-600">Sistem rollerini yönetin.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Roller</h1>
+          <p className="mt-1 text-sm text-slate-600">Sistem rollerini yönetin.</p>
         </div>
 
         {canManageRoles ? (
@@ -243,16 +243,10 @@ function AdminRolesPageContent() {
         ) : null}
       </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard label="Toplam Rol" value={String(roles.length)} />
-        <SummaryCard label="Aktif" value={String(totalActiveRoles)} />
-        <SummaryCard label="Pasif" value={String(totalPassiveRoles)} />
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <input
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            className="filter-control"
             placeholder="Rol adı, kod veya açıklama ara..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -404,20 +398,6 @@ function AdminRolesPageContent() {
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold text-slate-900">{value}</div>
-    </div>
-  );
-}
 
 function FilterButton({
   active,

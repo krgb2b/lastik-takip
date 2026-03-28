@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/src/lib/supabase";
+import { formatTyreStatus } from "@/src/lib/formatters";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRows,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
 
 type VehicleLoading = {
   id: number;
@@ -28,8 +35,6 @@ type ShipmentReceipt = {
   shipment_type: string;
   status: string;
   shipment_date: string | null;
-  region: string | null;
-  salesperson: string | null;
   description: string | null;
   created_at: string;
 };
@@ -40,10 +45,7 @@ type ShipmentReceiptItem = {
   tyre_id: number;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-};
+type Customer = NormalizedCustomer;
 
 type Tyre = {
   id: number;
@@ -161,7 +163,7 @@ export default function VehicleLoadingPrintPage() {
           .eq("vehicle_loading_id", loadingId)
           .order("id", { ascending: true }),
 
-        supabase.from("customers").select("id, name").order("name"),
+        supabase.from("customers").select(CUSTOMER_WITH_RELATIONS_SELECT).order("name"),
 
         supabase.from("retread_brands").select("id, name").order("name"),
 
@@ -186,7 +188,7 @@ export default function VehicleLoadingPrintPage() {
 
       const loadingItems = (loadingItemsRes.data || []) as VehicleLoadingItem[];
       setVehicleLoadingItems(loadingItems);
-      setCustomers((customersRes.data || []) as Customer[]);
+      setCustomers(normalizeCustomerRows((customersRes.data || []) as CustomerWithRelationsRow[]));
       setRetreadBrands((retreadBrandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((treadPatternsRes.data || []) as TreadPattern[]);
 
@@ -209,8 +211,6 @@ export default function VehicleLoadingPrintPage() {
           shipment_type,
           status,
           shipment_date,
-          region,
-          salesperson,
           description,
           created_at
         `)
@@ -280,7 +280,7 @@ export default function VehicleLoadingPrintPage() {
   }, [loadingId]);
 
   const customerMap = useMemo(
-    () => new Map(customers.map((c) => [c.id, c.name])),
+    () => new Map(customers.map((c) => [c.id, c])),
     [customers]
   );
 
@@ -476,18 +476,18 @@ export default function VehicleLoadingPrintPage() {
                           {receipt.shipment_no}
                         </div>
                         <div className="mt-1 text-sm text-slate-600">
-                          {customerMap.get(receipt.customer_id) || "-"}
+                          {customerMap.get(receipt.customer_id)?.name || "-"}
                         </div>
                       </div>
 
                       <div className="grid gap-x-6 gap-y-1 text-sm md:grid-cols-4">
                         <PrintMetaInline
                           label="Bölge"
-                          value={receipt.region || "-"}
+                          value={customerMap.get(receipt.customer_id)?.region || "-"}
                         />
                         <PrintMetaInline
                           label="Plasiyer"
-                          value={receipt.salesperson || "-"}
+                          value={customerMap.get(receipt.customer_id)?.salesperson || "-"}
                         />
                         <PrintMetaInline
                           label="Adet"
@@ -588,7 +588,7 @@ export default function VehicleLoadingPrintPage() {
                                     : "-"}
                                 </td>
                                 <td className="border-b border-slate-200 p-3 text-sm">
-                                  {tyre.status || "-"}
+                                  {formatTyreStatus(tyre.status)}
                                 </td>
                               </tr>
                             );

@@ -146,34 +146,27 @@ function AuditLogsPageContent() {
   }
 
   return (
-    <main className="space-y-4 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Audit Log</h1>
-        <p className="text-sm text-slate-600">
+    <main className="space-y-4">
+      <div className="flex flex-col gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Audit Log</h1>
+          <p className="mt-1 text-sm text-slate-600">
           Sistem üzerinde yapılan kritik işlemlerin kayıtları.
-        </p>
+          </p>
+        </div>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard label="Toplam Kayıt" value={String(logs.length)} />
-        <SummaryCard label="Filtreli Kayıt" value={String(filteredLogs.length)} />
-        <SummaryCard
-          label="İşlem Türü"
-          value={actionFilter === "all" ? "Tümü" : actionFilter}
-        />
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_220px]">
           <input
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            className="filter-control"
             placeholder="Kullanıcı, işlem, tablo veya payload ara..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
 
           <select
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            className="filter-control"
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
           >
@@ -186,7 +179,7 @@ function AuditLogsPageContent() {
           </select>
 
           <select
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            className="filter-control"
             value={tableFilter}
             onChange={(e) => setTableFilter(e.target.value)}
           >
@@ -273,20 +266,5 @@ function AuditLogsPageContent() {
         </table>
       </div>
     </main>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold text-slate-900">{value}</div>
-    </div>
   );
 }

@@ -12,13 +12,24 @@ export default function AppShell({
 
   const hideHeader =
     pathname?.includes("/print") ||
-    pathname?.startsWith("/vehicle-loadings/") && pathname?.endsWith("/print") ||
-    pathname?.startsWith("/shipment-receipts/") && pathname?.endsWith("/print");
+    pathname?.includes("workorder-print") ||
+    pathname?.includes("workorders-print") ||
+    (pathname?.startsWith("/vehicle-loadings/") && pathname?.endsWith("/print")) ||
+    (pathname?.startsWith("/shipment-receipts/") && pathname?.endsWith("/print"));
 
   return (
-    <>
+    <div className="flex min-h-screen flex-col bg-slate-50">
       {!hideHeader ? <HeaderMenu /> : null}
-      {children}
-    </>
+
+      <div className="flex-1">
+        {children}
+      </div>
+
+      {!hideHeader ? (
+        <footer className="border-t border-slate-200 bg-white px-4 py-3 text-center text-xs text-slate-600">
+          Copyright Emre Lastik Otomotiv San. ve Tic. Ltd. Şti.
+        </footer>
+      ) : null}
+    </div>
   );
 }

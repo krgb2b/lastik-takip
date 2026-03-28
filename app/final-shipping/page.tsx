@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabase";
 import PermissionGuard from "@/src/components/PermissionGuard";
 import { writeAuditLog } from "@/src/lib/audit/write-audit-log";
+import { formatTyreStatus } from "@/src/lib/formatters";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRows,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
 
 type VehicleLoading = {
   id: number;
@@ -29,8 +36,6 @@ type ShipmentReceipt = {
   shipment_type: string;
   status: string;
   shipment_date: string | null;
-  region: string | null;
-  salesperson: string | null;
   description: string | null;
   created_at: string;
 };
@@ -41,10 +46,7 @@ type ShipmentReceiptItem = {
   tyre_id: number;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-};
+type Customer = NormalizedCustomer;
 
 type Tyre = {
   id: number;
@@ -150,8 +152,6 @@ function FinalShippingPageContent() {
             shipment_type,
             status,
             shipment_date,
-            region,
-            salesperson,
             description,
             created_at
           `),
@@ -161,7 +161,7 @@ function FinalShippingPageContent() {
           .select("id, shipment_receipt_id, tyre_id")
           .order("id", { ascending: true }),
 
-        supabase.from("customers").select("id, name").order("name"),
+        supabase.from("customers").select(CUSTOMER_WITH_RELATIONS_SELECT).order("name"),
 
         supabase
   .from("tyres")
@@ -206,7 +206,7 @@ function FinalShippingPageContent() {
       setVehicleLoadingItems((vehicleLoadingItemsRes.data || []) as VehicleLoadingItem[]);
       setShipmentReceipts((shipmentReceiptsRes.data || []) as ShipmentReceipt[]);
       setShipmentReceiptItems((shipmentReceiptItemsRes.data || []) as ShipmentReceiptItem[]);
-      setCustomers((customersRes.data || []) as Customer[]);
+      setCustomers(normalizeCustomerRows((customersRes.data || []) as CustomerWithRelationsRow[]));
       setTyres((tyresRes.data || []) as Tyre[]);
       setLoading(false);
     }
@@ -215,7 +215,7 @@ function FinalShippingPageContent() {
   }, []);
 
   const customerMap = useMemo(
-    () => new Map(customers.map((c) => [c.id, c.name])),
+    () => new Map(customers.map((c) => [c.id, c])),
     [customers]
   );
 
@@ -259,21 +259,23 @@ function FinalShippingPageContent() {
     const values = new Set<string>();
 
     shipmentReceipts.forEach((receipt) => {
-      if (receipt.region) values.add(receipt.region);
+      const customer = customerMap.get(receipt.customer_id);
+      if (customer?.region) values.add(customer.region);
     });
 
     return Array.from(values).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [shipmentReceipts]);
+  }, [shipmentReceipts, customerMap]);
 
   const salespersonOptions = useMemo(() => {
     const values = new Set<string>();
 
     shipmentReceipts.forEach((receipt) => {
-      if (receipt.salesperson) values.add(receipt.salesperson);
+      const customer = customerMap.get(receipt.customer_id);
+      if (customer?.salesperson) values.add(customer.salesperson);
     });
 
     return Array.from(values).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [shipmentReceipts]);
+  }, [shipmentReceipts, customerMap]);
 
   const vehiclePlateOptions = useMemo(() => {
     return Array.from(
@@ -299,14 +301,14 @@ function FinalShippingPageContent() {
 
       if (
         regionFilter !== "all" &&
-        !relatedReceipts.some((r) => (r.region || "") === regionFilter)
+        !relatedReceipts.some((r) => (customerMap.get(r.customer_id)?.region || "") === regionFilter)
       ) {
         return false;
       }
 
       if (
         salespersonFilter !== "all" &&
-        !relatedReceipts.some((r) => (r.salesperson || "") === salespersonFilter)
+        !relatedReceipts.some((r) => (customerMap.get(r.customer_id)?.salesperson || "") === salespersonFilter)
       ) {
         return false;
       }
@@ -318,9 +320,9 @@ function FinalShippingPageContent() {
         loadingRow.vehicle_plate,
         loadingRow.driver_name || "",
         ...relatedReceipts.map((r) => r.shipment_no),
-        ...relatedReceipts.map((r) => r.region || ""),
-        ...relatedReceipts.map((r) => r.salesperson || ""),
-        ...relatedReceipts.map((r) => customerMap.get(r.customer_id) || ""),
+        ...relatedReceipts.map((r) => customerMap.get(r.customer_id)?.region || ""),
+        ...relatedReceipts.map((r) => customerMap.get(r.customer_id)?.salesperson || ""),
+        ...relatedReceipts.map((r) => customerMap.get(r.customer_id)?.name || ""),
       ]
         .join(" ")
         .toLocaleLowerCase("tr-TR");
@@ -533,17 +535,17 @@ function FinalShippingPageContent() {
         <SummaryCard title="Toplam Tutar" value={`${formatMoney(totalAmount)} TL`} />
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
           <input
-            className="h-10 min-w-[280px] flex-[1.6] rounded-xl border border-slate-300 px-3 text-sm"
+            className="filter-control min-w-[280px] flex-[1.6]"
             placeholder="Yükleme no, plaka, şoför, müşteri, bölge ara..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
 
           <select
-            className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+            className="filter-control min-w-[170px] flex-1"
             value={vehiclePlateFilter}
             onChange={(e) => setVehiclePlateFilter(e.target.value)}
           >
@@ -556,7 +558,7 @@ function FinalShippingPageContent() {
           </select>
 
           <select
-            className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+            className="filter-control min-w-[170px] flex-1"
             value={regionFilter}
             onChange={(e) => setRegionFilter(e.target.value)}
           >
@@ -569,7 +571,7 @@ function FinalShippingPageContent() {
           </select>
 
           <select
-            className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+            className="filter-control min-w-[170px] flex-1"
             value={salespersonFilter}
             onChange={(e) => setSalespersonFilter(e.target.value)}
           >
@@ -684,10 +686,10 @@ function FinalShippingPageContent() {
                                 {receipt.shipment_no}
                               </div>
                               <div className="text-sm text-slate-600">
-                                {customerMap.get(receipt.customer_id) || "-"}
+                                {customerMap.get(receipt.customer_id)?.name || "-"}
                               </div>
                               <div className="text-xs text-slate-500">
-                                {receipt.region || "-"} / {receipt.salesperson || "-"}
+                                {customerMap.get(receipt.customer_id)?.region || "-"} / {customerMap.get(receipt.customer_id)?.salesperson || "-"}
                               </div>
                             </div>
                           </div>
@@ -720,7 +722,7 @@ function FinalShippingPageContent() {
             <td className="p-3 text-sm">{formatMoney(tyre.sale_price)} TL</td>
             <td className="p-3 text-sm">{tyre.original_brand || "-"}</td>
             <td className="p-3 text-sm">{tyre.original_pattern || "-"}</td>
-            <td className="p-3 text-sm">{tyre.status || "-"}</td>
+            <td className="p-3 text-sm">{formatTyreStatus(tyre.status)}</td>
           </tr>
         );
       })}

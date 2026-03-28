@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/src/lib/supabase";
 import PermissionGuard from "@/src/components/PermissionGuard";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRows,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
+import { formatTyreStatus } from "@/src/lib/formatters";
 
 type ShipmentReceipt = {
   id: number;
@@ -11,8 +18,6 @@ type ShipmentReceipt = {
   shipment_type: string;
   status: string;
   shipment_date: string | null;
-  region: string | null;
-  salesperson: string | null;
   description: string | null;
   created_at: string;
 };
@@ -23,10 +28,7 @@ type ShipmentReceiptItem = {
   tyre_id: number;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-};
+type Customer = NormalizedCustomer;
 
 type Tyre = {
   id: number;
@@ -124,8 +126,6 @@ function ShipmentReceiptsPageContent() {
             shipment_type,
             status,
             shipment_date,
-            region,
-            salesperson,
             description,
             created_at
           `)
@@ -136,7 +136,7 @@ function ShipmentReceiptsPageContent() {
           .select("id, shipment_receipt_id, tyre_id")
           .order("id", { ascending: true }),
 
-        supabase.from("customers").select("id, name").order("name"),
+        supabase.from("customers").select(CUSTOMER_WITH_RELATIONS_SELECT).order("name"),
 
         supabase
           .from("tyres")
@@ -187,7 +187,7 @@ function ShipmentReceiptsPageContent() {
 
       setShipmentReceipts((shipmentReceiptsRes.data || []) as ShipmentReceipt[]);
       setShipmentReceiptItems((shipmentReceiptItemsRes.data || []) as ShipmentReceiptItem[]);
-      setCustomers((customersRes.data || []) as Customer[]);
+      setCustomers(normalizeCustomerRows((customersRes.data || []) as CustomerWithRelationsRow[]));
       setTyres((tyresRes.data || []) as Tyre[]);
       setRetreadBrands((retreadBrandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((treadPatternsRes.data || []) as TreadPattern[]);
@@ -198,7 +198,7 @@ function ShipmentReceiptsPageContent() {
   }, []);
 
   const customerMap = useMemo(
-    () => new Map(customers.map((c) => [c.id, c.name])),
+    () => new Map(customers.map((c) => [c.id, c])),
     [customers]
   );
 
@@ -244,15 +244,23 @@ function ShipmentReceiptsPageContent() {
 
   const regionOptions = useMemo(() => {
     return Array.from(
-      new Set(shipmentReceipts.map((x) => x.region || "").filter(Boolean))
+      new Set(
+        shipmentReceipts
+          .map((x) => customerMap.get(x.customer_id)?.region || "")
+          .filter(Boolean)
+      )
     ).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [shipmentReceipts]);
+  }, [shipmentReceipts, customerMap]);
 
   const salespersonOptions = useMemo(() => {
     return Array.from(
-      new Set(shipmentReceipts.map((x) => x.salesperson || "").filter(Boolean))
+      new Set(
+        shipmentReceipts
+          .map((x) => customerMap.get(x.customer_id)?.salesperson || "")
+          .filter(Boolean)
+      )
     ).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [shipmentReceipts]);
+  }, [shipmentReceipts, customerMap]);
 
   const filteredReceipts = useMemo(() => {
     const q = searchText.trim().toLocaleLowerCase("tr-TR");
@@ -266,26 +274,26 @@ function ShipmentReceiptsPageContent() {
         return false;
       }
 
-      if (regionFilter !== "all" && (receipt.region || "") !== regionFilter) {
+      if (regionFilter !== "all" && (customerMap.get(receipt.customer_id)?.region || "") !== regionFilter) {
         return false;
       }
 
       if (
         salespersonFilter !== "all" &&
-        (receipt.salesperson || "") !== salespersonFilter
+        (customerMap.get(receipt.customer_id)?.salesperson || "") !== salespersonFilter
       ) {
         return false;
       }
 
       if (!q) return true;
 
-      const customerName = customerMap.get(receipt.customer_id) || "";
+      const customerName = customerMap.get(receipt.customer_id)?.name || "";
 
       const haystack = [
         receipt.shipment_no,
         customerName,
-        receipt.region || "",
-        receipt.salesperson || "",
+        customerMap.get(receipt.customer_id)?.region || "",
+        customerMap.get(receipt.customer_id)?.salesperson || "",
         receipt.shipment_type || "",
         receipt.status || "",
         receipt.description || "",
@@ -356,17 +364,17 @@ function ShipmentReceiptsPageContent() {
         <SummaryCard title="Toplam Tutar" value={`${formatMoney(totalAmount)} TL`} />
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
   <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
     <input
-      className="h-10 min-w-[280px] flex-[1.6] rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[280px] flex-[1.6]"
       placeholder="Sevk no, müşteri, bölge, plasiyer ara..."
       value={searchText}
       onChange={(e) => setSearchText(e.target.value)}
     />
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={shipmentTypeFilter}
       onChange={(e) => setShipmentTypeFilter(e.target.value)}
     >
@@ -379,20 +387,20 @@ function ShipmentReceiptsPageContent() {
     </select>
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={statusFilter}
       onChange={(e) => setStatusFilter(e.target.value)}
     >
       <option value="all">Tüm Durumlar</option>
       {statusOptions.map((item) => (
         <option key={item} value={item}>
-          {item}
+          {formatTyreStatus(item)}
         </option>
       ))}
     </select>
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={regionFilter}
       onChange={(e) => setRegionFilter(e.target.value)}
     >
@@ -405,7 +413,7 @@ function ShipmentReceiptsPageContent() {
     </select>
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={salespersonFilter}
       onChange={(e) => setSalespersonFilter(e.target.value)}
     >
@@ -457,16 +465,16 @@ function ShipmentReceiptsPageContent() {
                               {receipt.shipment_no}
                             </div>
                             <div className="text-sm text-slate-600">
-                              {customerMap.get(receipt.customer_id) || "-"}
+                              {customerMap.get(receipt.customer_id)?.name || "-"}
                             </div>
                             <StatusBadge status={receipt.status} />
                           </div>
 
                           <div className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4">
-                            <InlineMeta label="Bölge" value={receipt.region || "-"} />
+                            <InlineMeta label="Bölge" value={customerMap.get(receipt.customer_id)?.region || "-"} />
                             <InlineMeta
                               label="Plasiyer"
-                              value={receipt.salesperson || "-"}
+                              value={customerMap.get(receipt.customer_id)?.salesperson || "-"}
                             />
                             <InlineMeta
                               label="Sevk Tipi"
@@ -642,7 +650,7 @@ function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${className}`}>
-      {status}
+      {formatTyreStatus(status)}
     </span>
   );
 }

@@ -6,14 +6,17 @@ import { supabase } from "../../../../src/lib/supabase";
 
 type Receipt = {
   id: number;
+  customer_id: number | null;
   receipt_no: string;
   delivered_by: string | null;
   collection_date: string | null;
   total_sale_price: number | null;
   description: string | null;
-  customers: {
-    name: string;
-  }[] | null;
+};
+
+type Customer = {
+  id: number;
+  name: string;
 };
 
 type Tyre = {
@@ -28,6 +31,8 @@ type Tyre = {
   description: string | null;
   retread_brand_id: number | null;
   tread_pattern_id: number | null;
+  rim_status: string | null;
+  warranty_status: string | null;
 };
 
 type RetreadBrand = {
@@ -45,6 +50,7 @@ export default function CollectionPrintPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(null);
   const [tyres, setTyres] = useState<Tyre[]>([]);
   const [retreadBrands, setRetreadBrands] = useState<RetreadBrand[]>([]);
   const [treadPatterns, setTreadPatterns] = useState<TreadPattern[]>([]);
@@ -60,14 +66,12 @@ export default function CollectionPrintPage() {
           .from("collection_receipts")
           .select(`
             id,
+            customer_id,
             receipt_no,
             delivered_by,
             collection_date,
             total_sale_price,
-            description,
-            customers (
-              name
-            )
+            description
           `)
           .eq("id", Number(id))
           .single(),
@@ -85,7 +89,9 @@ export default function CollectionPrintPage() {
             sale_price,
             description,
             retread_brand_id,
-            tread_pattern_id
+            tread_pattern_id,
+            rim_status,
+            warranty_status
           `)
           .eq("collection_receipt_id", Number(id))
           .order("id", { ascending: true }),
@@ -98,6 +104,26 @@ export default function CollectionPrintPage() {
         setError(receiptRes.error.message);
         setLoading(false);
         return;
+      }
+
+      const receiptData = receiptRes.data as Receipt;
+
+      if (receiptData?.customer_id) {
+        const { data: customerData, error: customerError } = await supabase
+          .from("customers")
+          .select("id, name")
+          .eq("id", receiptData.customer_id)
+          .single();
+
+        if (customerError) {
+          setError(customerError.message);
+          setLoading(false);
+          return;
+        }
+
+        setCustomer(customerData as Customer);
+      } else {
+        setCustomer(null);
       }
 
       if (tyresRes.error) {
@@ -118,7 +144,7 @@ export default function CollectionPrintPage() {
         return;
       }
 
-      setReceipt(receiptRes.data as Receipt);
+      setReceipt(receiptData);
       setTyres((tyresRes.data || []) as Tyre[]);
       setRetreadBrands((brandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((patternsRes.data || []) as TreadPattern[]);
@@ -148,7 +174,7 @@ export default function CollectionPrintPage() {
     return <main className="p-6">Hata: {error}</main>;
   }
 
-  const customerName = receipt?.customers?.[0]?.name || "-";
+  const customerName = customer?.name || "-";
   const printDate = receipt?.collection_date
     ? new Date(receipt.collection_date).toLocaleString("tr-TR")
     : "-";
@@ -282,6 +308,14 @@ export default function CollectionPrintPage() {
                         {treadPatternName}
                       </div>
                     ) : null}
+
+                    <div>
+                      <strong>JANT:</strong> {tyre.rim_status || "-"}
+                    </div>
+
+                    <div>
+                      <strong>GARANTİ:</strong> {tyre.warranty_status || "-"}
+                    </div>
 
                     {tyre.description ? (
                       <div className="break-words">

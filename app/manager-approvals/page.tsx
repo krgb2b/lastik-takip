@@ -6,6 +6,7 @@ import PermissionGuard from "@/src/components/PermissionGuard";
 import { can } from "@/src/lib/auth/permissions";
 import { usePermissionState } from "@/src/hooks/usePermissionState";
 import { writeAuditLog } from "@/src/lib/audit/write-audit-log";
+import { formatTyreStatus } from "@/src/lib/formatters";
 
 type Tyre = {
   id: number;
@@ -946,7 +947,7 @@ function StatusBadge({ tyre }: { tyre: Tyre }) {
 
   return (
     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-      {tyre.status}
+      {formatTyreStatus(tyre.status)}
     </span>
   );
 }

@@ -6,6 +6,13 @@ import PermissionGuard from "@/src/components/PermissionGuard";
 import { can } from "@/src/lib/auth/permissions";
 import { usePermissionState } from "@/src/hooks/usePermissionState";
 import { writeAuditLog } from "@/src/lib/audit/write-audit-log";
+import { formatTyreStatus } from "@/src/lib/formatters";
+import {
+  CUSTOMER_WITH_RELATIONS_SELECT,
+  normalizeCustomerRows,
+  type CustomerWithRelationsRow,
+  type NormalizedCustomer,
+} from "@/src/lib/customer-relations";
 
 type Tyre = {
   id: number;
@@ -39,12 +46,7 @@ type Receipt = {
   description: string | null;
 };
 
-type Customer = {
-  id: number;
-  name: string;
-  region: string | null;
-  salesperson: string | null;
-};
+type Customer = NormalizedCustomer;
 
 type RetreadBrand = {
   id: number;
@@ -171,7 +173,7 @@ function ShippingPageContent() {
 
         supabase
           .from("customers")
-          .select("id, name, region, salesperson")
+          .select(CUSTOMER_WITH_RELATIONS_SELECT)
           .order("name"),
 
         supabase.from("retread_brands").select("id, name").order("name"),
@@ -205,7 +207,11 @@ function ShippingPageContent() {
 
       setTyres((tyresRes.data || []) as Tyre[]);
       setReceipts((receiptsRes.data || []) as Receipt[]);
-      setCustomers((customersRes.data || []) as Customer[]);
+      setCustomers(
+        normalizeCustomerRows(
+          ((customersRes.data || []) as CustomerWithRelationsRow[])
+        )
+      );
       setRetreadBrands((retreadBrandsRes.data || []) as RetreadBrand[]);
       setTreadPatterns((treadPatternsRes.data || []) as TreadPattern[]);
       setLoading(false);
@@ -439,8 +445,6 @@ const { data: shipmentReceipt, error: shipmentReceiptError } = await supabase
     shipment_type: shipmentType,
     status: "ready_for_loading",
     shipment_date: new Date().toISOString(),
-    region: currentCustomer?.region || null,
-    salesperson: currentCustomer?.salesperson || null,
     description: null,
   })
   .select("id")
@@ -574,14 +578,14 @@ const { data: shipmentReceipt, error: shipmentReceiptError } = await supabase
 
   <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
     <input
-      className="h-10 min-w-[280px] flex-[1.6] rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[280px] flex-[1.6]"
       placeholder="Müşteri, bölge, plasiyer, seri no veya fiş no ara..."
       value={customerSearch}
       onChange={(e) => setCustomerSearch(e.target.value)}
     />
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={regionFilter}
       onChange={(e) => setRegionFilter(e.target.value)}
     >
@@ -594,7 +598,7 @@ const { data: shipmentReceipt, error: shipmentReceiptError } = await supabase
     </select>
 
     <select
-      className="h-10 min-w-[170px] flex-1 rounded-xl border border-slate-300 px-3 text-sm"
+      className="filter-control min-w-[170px] flex-1"
       value={salespersonFilter}
       onChange={(e) => setSalespersonFilter(e.target.value)}
     >
@@ -883,7 +887,7 @@ function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${className}`}>
-      {status}
+      {formatTyreStatus(status)}
     </span>
   );
 }

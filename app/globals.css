@@ -37,3 +37,70 @@ button,
 a {
   text-decoration: none;
 }
+
+@layer components {
+  .filter-label {
+    @apply mb-2 block px-1 text-[11px] font-medium text-slate-500;
+  }
+
+  .filter-label-hidden {
+    @apply mb-2 block px-1 text-[11px] font-medium text-white select-none;
+  }
+
+  .filter-control {
+    @apply h-9 w-full rounded-md border border-slate-300 bg-white px-4 text-[13px] text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .filter-control-h10 {
+    @apply h-10;
+  }
+
+  .filter-control-h8 {
+    @apply h-8;
+  }
+
+  .filter-button-primary {
+    @apply inline-flex h-9 w-full items-center justify-center rounded-md border px-4 text-sm font-semibold text-white shadow-sm transition active:scale-95;
+    background-color: #2563eb;
+    border-color: #1d4ed8;
+  }
+
+  .filter-button-h14 {
+    @apply h-9 w-full;
+  }
+
+  .filter-button-h9 {
+    @apply h-9 w-full;
+  }
+
+  .filter-button-h10 {
+    @apply h-10 w-full;
+  }
+
+  .filter-button-h8 {
+    @apply h-8 w-full;
+  }
+
+  .filter-button-primary:hover {
+    background-color: #1d4ed8;
+  }
+
+  .filter-button-danger {
+    @apply inline-flex h-9 w-full items-center justify-center rounded-md border bg-white px-4 text-sm font-semibold text-red-600 shadow-sm transition active:scale-95;
+    border-color: #f87171;
+  }
+
+  .filter-button-danger:hover {
+    background-color: #fff1f2;
+  }
+
+  .filter-button-success {
+    @apply inline-flex h-9 w-full items-center justify-center rounded-md border px-4 text-sm font-semibold text-white shadow-sm transition active:scale-95;
+    background-color: #059669;
+    border-color: #047857;
+  }
+
+  .filter-button-success:hover {
+    background-color: #047857;
+  }
+}
