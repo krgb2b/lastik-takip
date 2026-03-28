@@ -68,6 +68,10 @@ function formatDate(value: string | null | undefined) {
   });
 }
 
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     collected: "bg-slate-100 text-slate-700",
@@ -253,25 +257,25 @@ function AllTyresPageContent() {
   }, [customers]);
 
   const collectionTypeOptions = useMemo(() => {
-    return Array.from(new Set(tyres.map((x) => x.collection_type).filter(Boolean)))
+    return Array.from(new Set(tyres.map((x) => x.collection_type).filter(isNonEmptyString)))
       .sort((a, b) => a.localeCompare(b, "tr"))
       .map((x) => ({ value: x, label: x }));
   }, [tyres]);
 
   const sizeOptions = useMemo(() => {
-    return Array.from(new Set(tyres.map((x) => x.size).filter(Boolean)))
+    return Array.from(new Set(tyres.map((x) => x.size).filter(isNonEmptyString)))
       .sort((a, b) => a.localeCompare(b))
       .map((x) => ({ value: x, label: x }));
   }, [tyres]);
 
   const originalBrandOptions = useMemo(() => {
-    return Array.from(new Set(tyres.map((x) => x.original_brand).filter(Boolean)))
+    return Array.from(new Set(tyres.map((x) => x.original_brand).filter(isNonEmptyString)))
       .sort((a, b) => a.localeCompare(b, "tr"))
       .map((x) => ({ value: x, label: x }));
   }, [tyres]);
 
   const originalPatternOptions = useMemo(() => {
-    return Array.from(new Set(tyres.map((x) => x.original_pattern).filter(Boolean)))
+    return Array.from(new Set(tyres.map((x) => x.original_pattern).filter(isNonEmptyString)))
       .sort((a, b) => a.localeCompare(b, "tr"))
       .map((x) => ({ value: x, label: x }));
   }, [tyres]);
