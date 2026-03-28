@@ -280,7 +280,14 @@ function ManagerApprovalsPageContent() {
       }
     }
 
-    const confirmed = window.confirm("Bu lastik üretime onaylansın mı?");
+    const tyre = tyres.find((t) => t.id === id);
+    const isCarcass = tyre?.collection_type === "Karkas Satın Alma";
+    const newStatus = "approved_for_production";
+    const confirmMessage = isCarcass
+      ? "Bu karkas lastik operatör uygunluk kontrolüne gönderilsin mi?"
+      : "Bu lastik üretime onaylansın mı?";
+
+    const confirmed = window.confirm(confirmMessage);
     if (!confirmed) return;
 
     setSubmittingId(id);
@@ -288,7 +295,7 @@ function ManagerApprovalsPageContent() {
     const { data, error } = await supabase
       .from("tyres")
       .update({
-        status: "approved_for_production",
+        status: newStatus,
         rejection_stage: null,
         rejection_reason: null,
         rejection_note: null,
@@ -328,7 +335,7 @@ function ManagerApprovalsPageContent() {
         tyre.id === id
           ? {
               ...tyre,
-              status: "approved_for_production",
+              status: newStatus,
               rejection_stage: null,
               rejection_reason: null,
               rejection_note: null,
@@ -431,22 +438,23 @@ function ManagerApprovalsPageContent() {
 
     const ids = receiptTyres.map((t) => t.id);
 
+    const sharedPayload = {
+      rejection_stage: null,
+      rejection_reason: null,
+      rejection_note: null,
+      rejection_return_shipped: false,
+      rejection_return_shipped_at: null,
+    };
+
     const { data, error } = await supabase
       .from("tyres")
-      .update({
-        status: "approved_for_production",
-        rejection_stage: null,
-        rejection_reason: null,
-        rejection_note: null,
-        rejection_return_shipped: false,
-        rejection_return_shipped_at: null,
-      })
+      .update({ status: "approved_for_production", ...sharedPayload })
       .in("id", ids)
       .select("id");
 
     if (error) {
       alert(error.message);
-      setSubmittingReceiptId(receiptId);
+      setSubmittingReceiptId(null);
       return;
     }
 

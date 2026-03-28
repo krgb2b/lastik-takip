@@ -72,6 +72,7 @@ function ProductionPageContent() {
           status
         `)
         .eq("status", "approved_for_production")
+        .neq("collection_type", "Karkas Satın Alma")
         .order("id", { ascending: false });
 
       if (error) {

@@ -89,6 +89,11 @@ export default function HeaderMenu() {
             href: "/in-production",
             permission: "production.view",
           },
+          {
+            title: "Stoktaki Karkaslar",
+            href: "/production/carcass-stock",
+            permission: "production.view",
+          },
         ],
       },
       {

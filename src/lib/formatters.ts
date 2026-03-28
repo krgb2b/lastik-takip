@@ -49,6 +49,7 @@ export function formatTyreStatus(value: string | null | undefined): string {
     approved_for_production: "Üretime Hazır",
     in_production: "Üretim Aşamasında",
     stocked: "Stokta",
+    carcass_stocked: "Karkas Stokta",
     allocated_to_shipment: "Sevkiyat Programında",
     ready_for_loading: "Yüklemeye Hazır",
     loaded: "Araca Yüklendi",

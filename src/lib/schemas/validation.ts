@@ -117,6 +117,7 @@ export const TyreSchema = z.object({
     "approved_for_production",
     "in_production",
     "stocked",
+    "carcass_stocked",
     "shipped",
     "rejected",
     "allocated_to_shipment",

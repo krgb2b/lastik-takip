@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { supabase } from "@/src/lib/supabase";
 import PermissionGuard from "@/src/components/PermissionGuard";
 import { can } from "@/src/lib/auth/permissions";
@@ -102,6 +103,7 @@ function AdminOriginalCatalogPageContent() {
   const [loading, setLoading] = useState(true);
   const [savingBrand, setSavingBrand] = useState(false);
   const [savingPattern, setSavingPattern] = useState(false);
+  const [importingPatterns, setImportingPatterns] = useState(false);
   const [deletingBrandId, setDeletingBrandId] = useState<number | null>(null);
   const [deletingPatternId, setDeletingPatternId] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -121,28 +123,28 @@ function AdminOriginalCatalogPageContent() {
   const [patternName, setPatternName] = useState("");
   const [patternBrandId, setPatternBrandId] = useState("");
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      setError("");
+  async function loadData() {
+    setLoading(true);
+    setError("");
 
-      const [brandsRes, patternsRes] = await Promise.all([
-        supabase.from("original_brands").select("id, name").order("name"),
-        supabase.from("original_pattern").select("id, brand_id, name").order("name"),
-      ]);
+    const [brandsRes, patternsRes] = await Promise.all([
+      supabase.from("original_brands").select("id, name").order("name"),
+      supabase.from("original_pattern").select("id, brand_id, name").order("name"),
+    ]);
 
-      const firstError = [brandsRes.error, patternsRes.error].find(Boolean);
-      if (firstError) {
-        setError(firstError.message);
-        setLoading(false);
-        return;
-      }
-
-      setBrands(sortByName((brandsRes.data || []) as OriginalBrand[]));
-      setPatterns(sortByName((patternsRes.data || []) as OriginalPattern[]));
+    const firstError = [brandsRes.error, patternsRes.error].find(Boolean);
+    if (firstError) {
+      setError(firstError.message);
       setLoading(false);
+      return;
     }
 
+    setBrands(sortByName((brandsRes.data || []) as OriginalBrand[]));
+    setPatterns(sortByName((patternsRes.data || []) as OriginalPattern[]));
+    setLoading(false);
+  }
+
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -371,6 +373,158 @@ function AdminOriginalCatalogPageContent() {
     setDeletingPatternId(null);
   }
 
+  function exportPatternsToExcel() {
+    const rows = patterns.map((pattern) => ({
+      id: pattern.id,
+      marka: brandMap.get(pattern.brand_id) || "",
+      desen: pattern.name,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ["id", "marka", "desen"],
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "OrijinalDesenler");
+    XLSX.writeFile(wb, "orijinal-desenler.xlsx");
+  }
+
+  async function importPatternsFromExcel(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!canEditMasterData) {
+      alert("Bu işlem için yetkin yok.");
+      return;
+    }
+
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportingPatterns(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        setError("Excel dosyasında sayfa bulunamadı.");
+        return;
+      }
+
+      const ws = workbook.Sheets[firstSheetName];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+        defval: "",
+      });
+
+      if (rawRows.length === 0) {
+        setError("Excel dosyası boş.");
+        return;
+      }
+
+      const brandLookup = new Map(
+        brands.map((brand) => [brand.name.trim().toLocaleLowerCase("tr-TR"), brand])
+      );
+
+      const patternById = new Map(patterns.map((pattern) => [pattern.id, pattern]));
+      const patternByBrandAndName = new Map(
+        patterns.map((pattern) => {
+          const brandName = (brandMap.get(pattern.brand_id) || "").trim().toLocaleLowerCase("tr-TR");
+          const name = pattern.name.trim().toLocaleLowerCase("tr-TR");
+          return [`${brandName}__${name}`, pattern];
+        })
+      );
+
+      const inserts: Array<{ brand_id: number; name: string }> = [];
+      const updates: Array<{ id: number; brand_id: number; name: string }> = [];
+      const skipped: string[] = [];
+
+      rawRows.forEach((row, index) => {
+        const line = index + 2;
+        const idText = String(row.id ?? "").trim();
+        const brandNameRaw = String(row.marka ?? row.brand ?? "").trim();
+        const patternName = String(row.desen ?? row.pattern ?? "").trim();
+
+        if (!brandNameRaw && !patternName && !idText) {
+          return;
+        }
+
+        if (!brandNameRaw || !patternName) {
+          skipped.push(`Satır ${line}: Marka ve desen zorunlu.`);
+          return;
+        }
+
+        const brand = brandLookup.get(brandNameRaw.toLocaleLowerCase("tr-TR"));
+        if (!brand) {
+          skipped.push(`Satır ${line}: Marka bulunamadı (${brandNameRaw}).`);
+          return;
+        }
+
+        const key = `${brand.name.trim().toLocaleLowerCase("tr-TR")}__${patternName.toLocaleLowerCase("tr-TR")}`;
+        const idValue = Number(idText);
+
+        if (idText && Number.isFinite(idValue) && idValue > 0) {
+          const existingById = patternById.get(idValue);
+          if (!existingById) {
+            skipped.push(`Satır ${line}: ID bulunamadı (${idText}).`);
+            return;
+          }
+
+          updates.push({ id: idValue, brand_id: brand.id, name: patternName });
+          return;
+        }
+
+        const existingByKey = patternByBrandAndName.get(key);
+        if (existingByKey) {
+          updates.push({ id: existingByKey.id, brand_id: brand.id, name: patternName });
+          return;
+        }
+
+        inserts.push({ brand_id: brand.id, name: patternName });
+      });
+
+      if (inserts.length === 0 && updates.length === 0) {
+        setError(skipped[0] || "İşlenecek geçerli satır bulunamadı.");
+        return;
+      }
+
+      for (const item of updates) {
+        const { error: updateError } = await supabase
+          .from("original_pattern")
+          .update({ brand_id: item.brand_id, name: item.name })
+          .eq("id", item.id);
+
+        if (updateError) {
+          throw new Error(`Güncelleme hatası (ID ${item.id}): ${updateError.message}`);
+        }
+      }
+
+      if (inserts.length > 0) {
+        const { error: insertError } = await supabase.from("original_pattern").insert(inserts);
+        if (insertError) {
+          throw new Error(`Ekleme hatası: ${insertError.message}`);
+        }
+      }
+
+      await loadData();
+
+      const parts = [`${inserts.length} eklendi`, `${updates.length} güncellendi`];
+      if (skipped.length > 0) {
+        parts.push(`${skipped.length} atlandı`);
+      }
+
+      setMessage(`Excel içe aktarma tamamlandı: ${parts.join(", ")}.`);
+      if (skipped.length > 0) {
+        setError(skipped.slice(0, 5).join(" "));
+      }
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Excel içe aktarma başarısız oldu.";
+      setError(text);
+    } finally {
+      setImportingPatterns(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <main className="space-y-4">
       <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-start lg:justify-between">
@@ -463,6 +617,34 @@ function AdminOriginalCatalogPageContent() {
         </SectionCard>
 
         <SectionCard title="Orijinal Desenleri" description="Desenler marka bazlı tutulur; istersen sadece tek markayı filtreleyebilirsin.">
+          <div className="mb-4 flex flex-wrap gap-2">
+            <ActionButton
+              variant="secondary"
+              onClick={exportPatternsToExcel}
+              disabled={loading || patterns.length === 0}
+            >
+              Excel Dışa Aktar
+            </ActionButton>
+            <label className="inline-flex">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={importPatternsFromExcel}
+                disabled={!canEditMasterData || importingPatterns}
+              />
+              <span
+                className={`inline-flex h-9 cursor-pointer items-center justify-center rounded-lg px-3 text-sm font-medium transition ${
+                  !canEditMasterData || importingPatterns
+                    ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                    : "bg-slate-900 text-white hover:bg-slate-700"
+                }`}
+              >
+                {importingPatterns ? "İçe Aktarılıyor..." : "Excel İçe Aktar (Ekle/Güncelle)"}
+              </span>
+            </label>
+          </div>
+
           <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)_auto_auto]">
             <FormSelect
               value={patternBrandId}

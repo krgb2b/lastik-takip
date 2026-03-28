@@ -60,6 +60,13 @@ type OriginalBrandMaster = {
   name: string;
 };
 
+type OriginalPatternMaster = {
+  id: number;
+  brand_id: number;
+  name: string;
+  sort_order: number;
+};
+
 type CollectionType = "Kaplama" | "Tamir" | "Karkas Satın Alma";
 type TyreCondition = "Orijinal" | "Kaplama";
 type YesNo = "Var" | "Yok";
@@ -149,6 +156,21 @@ function compactUnique(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(values.map((v) => (v || "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b, "tr"));
+}
+
+type ExistingTyreCycleRow = {
+  serial_no: string;
+  status: string | null;
+  rejection_return_shipped: boolean | null;
+  cycle_no: number | null;
+};
+
+function isTerminalCycleStatus(tyre: ExistingTyreCycleRow) {
+  if (tyre.status === "shipped") return true;
+  if (tyre.status === "rejected" && tyre.rejection_return_shipped === true) {
+    return true;
+  }
+  return false;
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -505,9 +527,9 @@ function NewCollectionPageContent() {
   const [originalBrands, setOriginalBrands] = useState<OriginalBrandMaster[]>(
     []
   );
-  const [masterOriginalPatterns, setMasterOriginalPatterns] = useState<string[]>(
-    []
-  );
+  const [masterOriginalPatterns, setMasterOriginalPatterns] = useState<
+    OriginalPatternMaster[]
+  >([]);
 
   const [rows, setRows] = useState<Row[]>([]);
   const [customerId, setCustomerId] = useState("");
@@ -656,30 +678,21 @@ function NewCollectionPageContent() {
       );
       setOriginalBrands((originalBrandsRes.data || []) as OriginalBrandMaster[]);
 
-      const fallbackOriginalPatterns = compactUnique(
-        tyreRows.map((x) => x.original_pattern ?? "")
-      );
-
       const { data: originalPatternRows, error: originalPatternError } = await supabase
         .from("original_pattern")
-        .select("name")
+        .select("id, brand_id, name, sort_order")
         .order("sort_order")
         .order("name");
 
       if (originalPatternError) {
-        setMasterOriginalPatterns(fallbackOriginalPatterns);
+        setMasterOriginalPatterns([]);
         return;
       }
 
       setMasterOriginalPatterns(
-        compactUnique((originalPatternRows || []).map((x) => x.name || ""))
-          .filter(Boolean)
-          .concat(
-            fallbackOriginalPatterns.filter(
-              (pattern) =>
-                !compactUnique((originalPatternRows || []).map((x) => x.name || "")).includes(pattern)
-            )
-          )
+        ((originalPatternRows || []) as OriginalPatternMaster[]).filter(
+          (item) => !!item.name?.trim()
+        )
       );
     }
 
@@ -895,10 +908,22 @@ console.log(
     [originalBrands]
   );
 
-  const originalPatternOptions = useMemo(
-    () => masterOriginalPatterns.map((x) => ({ value: x, label: x })),
-    [masterOriginalPatterns]
-  );
+  const originalPatternOptions = useMemo(() => {
+    if (!draftRow.original_brand) return [];
+
+    const selectedBrand = originalBrands.find(
+      (brand) => brand.name === draftRow.original_brand
+    );
+
+    if (!selectedBrand) return [];
+
+    return masterOriginalPatterns
+      .filter((pattern) => Number(pattern.brand_id) === Number(selectedBrand.id))
+      .map((pattern) => ({
+        value: pattern.name,
+        label: pattern.name,
+      }));
+  }, [draftRow.original_brand, masterOriginalPatterns, originalBrands]);
 
   const retreadBrandOptions = useMemo(
     () =>
@@ -932,6 +957,14 @@ console.log(
           ...prev,
           retread_brand_id: value,
           tread_pattern_id: "",
+        };
+      }
+
+      if (field === "original_brand") {
+        return {
+          ...prev,
+          original_brand: value,
+          original_pattern: "",
         };
       }
 
@@ -1238,7 +1271,7 @@ console.log(
 
     const { data: existingTyres, error: existingError } = await supabase
       .from("tyres")
-      .select("serial_no")
+      .select("serial_no, status, rejection_return_shipped, cycle_no")
       .in("serial_no", serials);
 
     if (existingError) {
@@ -1246,11 +1279,48 @@ console.log(
       return;
     }
 
-    if ((existingTyres || []).length > 0) {
-      const existingSerials = existingTyres
-        .map((item) => item.serial_no)
-        .join(", ");
-      openMessage(`Bu seri no zaten kayıtlı: ${existingSerials}`);
+    const existingBySerial = new Map<string, ExistingTyreCycleRow[]>();
+    for (const row of ((existingTyres || []) as ExistingTyreCycleRow[])) {
+      const normalizedSerial = (row.serial_no || "").trim().toLowerCase();
+      if (!normalizedSerial) continue;
+      const list = existingBySerial.get(normalizedSerial);
+      if (list) {
+        list.push(row);
+      } else {
+        existingBySerial.set(normalizedSerial, [row]);
+      }
+    }
+
+    const blockedSerials: string[] = [];
+    const cycleNoBySerial = new Map<string, number>();
+
+    for (const serial of serials) {
+      const normalizedSerial = serial.trim().toLowerCase();
+      const matches = existingBySerial.get(normalizedSerial) || [];
+
+      if (matches.length === 0) {
+        cycleNoBySerial.set(normalizedSerial, 1);
+        continue;
+      }
+
+      const hasActiveCycle = matches.some((item) => !isTerminalCycleStatus(item));
+      if (hasActiveCycle) {
+        blockedSerials.push(serial);
+        continue;
+      }
+
+      const maxCycleNo = matches.reduce((max, item) => {
+        const cycleNo = item.cycle_no && item.cycle_no > 0 ? item.cycle_no : 1;
+        return Math.max(max, cycleNo);
+      }, 1);
+
+      cycleNoBySerial.set(normalizedSerial, maxCycleNo + 1);
+    }
+
+    if (blockedSerials.length > 0) {
+      openMessage(
+        `Bu seri no için aktif süreç devam ediyor: ${blockedSerials.join(", ")}`
+      );
       return;
     }
 
@@ -1292,6 +1362,7 @@ console.log(
     collection_receipt_id: receipt.id,
     collection_type: row.collection_type,
     serial_no: row.serial_no.trim(),
+    cycle_no: cycleNoBySerial.get(row.serial_no.trim().toLowerCase()) || 1,
     tyre_type: row.tyre_type,
     size: row.size,
     sale_price: Number(row.sale_price || 0),
@@ -1655,8 +1726,12 @@ console.log(
                 <SearchableSelect
                   value={draftRow.original_pattern}
                   options={originalPatternOptions}
-                  placeholder="Orijinal desen seç..."
-                  disabled={!canCreateCollection}
+                  placeholder={
+                    !draftRow.original_brand
+                      ? "Önce orijinal marka seçin"
+                      : "Orijinal desen seç..."
+                  }
+                  disabled={!canCreateCollection || !draftRow.original_brand}
                   onChange={(value) => updateDraft("original_pattern", value)}
                   inputRef={originalPatternInputRef}
                   onEnterNext={() => {
